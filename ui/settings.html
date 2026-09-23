@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings</title>
+<link rel="stylesheet" href="style.css">
+<script src="i18n.js"></script>
+</head>
+<body>
+<header class="titlebar">
+  <div class="brand pywebview-drag-region"><span data-i18n="settings_title" class="pywebview-drag-region"></span> <span class="ver pywebview-drag-region" id="ver"></span></div>
+  <button class="icon-btn close" id="btnClose" data-i18n-title="tt_close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 7l10 10M17 7L7 17"/></svg>
+  </button>
+</header>
+
+<main style="gap:14px; overflow-y:auto; overflow-x:hidden">
+  <section class="card">
+    <span class="eyebrow">PUBG API</span>
+    <div class="field">
+      <label for="key">
+        <span class="lbl"><span data-i18n="api_key"></span>
+          <span class="tip tip-left" tabindex="0">?<span class="tip-body" data-i18n-html="help_api"></span></span></span>
+        <a id="getKey" data-i18n="get_key"></a>
+      </label>
+      <div class="key-wrap">
+        <input class="input" id="key" type="password" spellcheck="false" autocomplete="off" placeholder="eyJ0eXAiOiJKV1Qi…">
+        <button class="icon-btn" id="eye" data-i18n-title="show_key">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="sources">
+        <span class="lbl"><span data-i18n="sources_label"></span>
+          <span class="tip tip-left" tabindex="0">?<span class="tip-body" data-i18n-html="help_sources"></span></span></span>
+      </label>
+      <textarea id="sources" spellcheck="false" data-i18n-ph="sources_ph"></textarea>
+    </div>
+  </section>
+
+  <section class="card">
+    <span class="eyebrow" data-i18n="sec_collect"></span>
+    <div class="grid3">
+      <div class="field"><label><span class="lbl"><span data-i18n="interval"></span>
+        <span class="tip tip-left" tabindex="0">?<span class="tip-body" data-i18n-html="help_interval"></span></span></span></label>
+        <input class="input" id="interval" type="number" min="5" max="1440"></div>
+      <div class="field"><label><span class="lbl"><span data-i18n="stale"></span>
+        <span class="tip tip-right" tabindex="0">?<span class="tip-body" data-i18n-html="help_stale"></span></span></span></label>
+        <input class="input" id="stale" type="number" min="1" max="365"></div>
+      <div class="field"><label><span class="lbl"><span data-i18n="recheck"></span>
+        <span class="tip tip-right" tabindex="0">?<span class="tip-body" data-i18n-html="help_recheck"></span></span></span></label>
+        <input class="input" id="recheck" type="number" min="1" max="90"></div>
+    </div>
+  </section>
+
+  <section class="card" style="gap:2px">
+    <span class="eyebrow" style="margin-bottom:6px" data-i18n="sec_invite"></span>
+    <label class="switch-row"><span data-i18n="opt_precheck"></span><span class="switch"><input type="checkbox" id="precheck"><i></i></span></label>
+    <label class="switch-row"><span data-i18n="opt_launch"></span><span class="switch"><input type="checkbox" id="launch"><i></i></span></label>
+    <label class="switch-row"><span data-i18n="opt_close"></span><span class="switch"><input type="checkbox" id="close"><i></i></span></label>
+    <label class="switch-row"><span data-i18n="opt_autostart"></span><span class="switch"><input type="checkbox" id="autostart"><i></i></span></label>
+  </section>
+
+  <section class="card">
+    <span class="eyebrow" data-i18n="sec_general"></span>
+    <div class="switch-row">
+      <span data-i18n="language"></span>
+      <select class="input select" id="language"></select>
+    </div>
+  </section>
+
+  <div class="error" id="err"></div>
+  <div class="footer">
+    <button class="btn btn-ghost" id="btnFolder" data-i18n="data_folder" data-i18n-title="data_folder_tt"></button>
+    <span class="grow"></span>
+    <button class="btn btn-ghost" id="btnCancel" data-i18n="cancel"></button>
+    <button class="btn btn-primary" id="btnSave" data-i18n="save"></button>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function fillLanguages(langs, selected) {
+  const sel = $("language");
+  sel.innerHTML = "";
+  sel.add(new Option(T("lang_auto"), "auto"));
+  for (const [code, name] of Object.entries(langs)) sel.add(new Option(name, code));
+  sel.value = selected in langs ? selected : "auto";
+}
+
+window.addEventListener("pywebviewready", async () => {
+  const api = window.pywebview.api;
+  const lang = await loadLang();
+  const s = await api.get_settings();
+  document.title = T("settings_title");
+  $("ver").textContent = "v" + s.version;
+  $("key").value = s.api_key;
+  $("sources").value = s.source_players.join("\n");
+  $("interval").value = s.collect_interval_min;
+  $("stale").value = s.stale_days;
+  $("recheck").value = s.recheck_clan_days;
+  $("precheck").checked = s.precheck_before_invite;
+  $("launch").checked = s.launch_game;
+  $("close").checked = s.close_game_when_done;
+  $("autostart").checked = s.autostart;
+  fillLanguages(lang.languages, s.language);
+
+  $("eye").onclick = () => $("key").type = $("key").type === "password" ? "text" : "password";
+  $("getKey").onclick = () => api.open_url("api");
+  $("btnFolder").onclick = () => api.open_data_folder();
+  $("btnClose").onclick = $("btnCancel").onclick = () => api.close_settings();
+  $("btnSave").onclick = async () => {
+    const r = await api.save_settings({
+      language: $("language").value,
+      api_key: $("key").value,
+      source_players: $("sources").value.split(/\r?\n/),
+      collect_interval_min: $("interval").value,
+      stale_days: $("stale").value,
+      recheck_clan_days: $("recheck").value,
+      precheck_before_invite: $("precheck").checked,
+      launch_game: $("launch").checked,
+      close_game_when_done: $("close").checked,
+      autostart: $("autostart").checked,
+    });
+    if (r.ok) api.close_settings(); else $("err").textContent = r.error;
+  };
+});
+</script>
+</body>
+</html>

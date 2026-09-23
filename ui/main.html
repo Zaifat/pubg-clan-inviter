@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PUBG Clan Inviter</title>
+<link rel="stylesheet" href="style.css">
+<script src="i18n.js"></script>
+</head>
+<body>
+<header class="titlebar">
+  <div class="brand pywebview-drag-region"><img src="app.png" alt="" class="pywebview-drag-region">PUBG Clan Inviter <span class="ver pywebview-drag-region" id="ver"></span></div>
+  <button class="icon-btn" id="btnSettings" data-i18n-title="tt_settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+  <button class="icon-btn" id="btnMin" data-i18n-title="tt_min">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 12h12"/></svg>
+  </button>
+  <button class="icon-btn close" id="btnClose" data-i18n-title="tt_tray">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 7l10 10M17 7L7 17"/></svg>
+  </button>
+</header>
+
+<main>
+  <div class="banner" id="setup" hidden>
+    <span id="setupText"></span>
+    <button class="btn btn-primary" id="btnSetup" data-i18n="setup_btn"></button>
+  </div>
+
+  <section class="card">
+    <div class="card-head">
+      <span class="eyebrow" data-i18n="collect_title"></span>
+      <span class="pill" id="cPill"></span>
+    </div>
+    <div class="metric"><b id="valid">0</b><span data-i18n="valid_label"></span></div>
+    <div class="sub" id="cDetail"></div>
+    <button class="btn btn-ghost" id="btnCollect"></button>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <span class="eyebrow" data-i18n="invites_title"></span>
+      <span class="pill" id="iPill"></span>
+    </div>
+    <div class="row">
+      <div class="stepper" data-i18n-title="count_title">
+        <button id="dec">−</button><input id="count" type="number" min="1" max="500" value="100"><button id="inc">+</button>
+      </div>
+      <button class="btn btn-primary grow" id="btnInvite">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>
+        <span></span>
+      </button>
+    </div>
+    <div class="progress"><i id="bar"></i></div>
+    <div class="sub" id="iDetail"></div>
+    <div class="counts" id="counts" hidden>
+      <span><span data-i18n="cnt_invited"></span> <b id="nOk">0</b></span>
+      <span><span data-i18n="cnt_not_found"></span> <b id="nNf">0</b></span>
+    </div>
+  </section>
+
+  <section class="log" id="log"></section>
+  <div class="hint"><kbd id="stopKey">F12</kbd> <span data-i18n="hint_bottom"></span></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let api, countDirty = false, lastLog = "", lastState = null;
+
+const PILL = { running: ["run", "pill_running"], waiting: ["wait", "pill_waiting"], error: ["err", "pill_error"], stopped: ["", "pill_stopped"] };
+
+function render(s) {
+  lastState = s;
+  $("setup").hidden = s.setup.length === 0;
+  $("setupText").textContent = T(s.setup.includes("api_key") ? "setup_api" : "setup_sources");
+
+  $("valid").textContent = s.stats.valid.toLocaleString();
+  const [cls, key] = PILL[s.collect.state] || PILL.stopped;
+  $("cPill").className = "pill " + cls;
+  $("cPill").textContent = T(key);
+  $("cDetail").textContent = s.collect.detail || (s.collect.running ? "" :
+    T("checked_summary", { checked: s.stats.checked.toLocaleString(), clan: s.stats.with_clan.toLocaleString() }));
+  $("btnCollect").textContent = T(s.collect.running ? "stop" : "start");
+  $("btnCollect").className = "btn " + (s.collect.running ? "btn-danger" : "btn-ghost");
+
+  const inv = s.invite;
+  $("iPill").textContent = T("today", { n: s.stats.invited_today });
+  $("iPill").className = "pill" + (inv.running ? " run" : "");
+  const btn = $("btnInvite");
+  btn.className = "btn grow " + (inv.running ? "btn-danger" : "btn-primary");
+  btn.querySelector("span").textContent = T(inv.running ? "halt" : "begin");
+  btn.querySelector("svg").style.display = inv.running ? "none" : "";
+  if (!countDirty && document.activeElement !== $("count")) $("count").value = s.count;
+  $("count").disabled = inv.running;
+  if (inv.counts) {
+    $("counts").hidden = false;
+    $("nOk").textContent = inv.counts.ok;
+    $("nNf").textContent = inv.counts.not_found;
+    $("bar").style.width = Math.min(100, inv.counts.ok / inv.target * 100) + "%";
+  }
+  $("iDetail").textContent = inv.detail || T("invite_hint");
+  $("stopKey").textContent = s.stop_key;
+  $("ver").textContent = "v" + s.version;
+
+  const key2 = JSON.stringify(s.log.at(-1) || "") + s.log.length;
+  if (key2 !== lastLog) {
+    lastLog = key2;
+    const el = $("log"), atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    el.innerHTML = s.log.map(l => `<div><time>${l.t}</time>${l.m.replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;")}</div>`).join("");
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  }
+}
+
+async function tick() {
+  try { render(await api.state()); } catch (e) { console.error(e); }
+}
+
+// called by Python after the language was changed in the settings
+async function applyLang() {
+  await loadLang();
+  if (lastState) render(lastState);
+}
+
+function step(d) {
+  const v = Math.max(1, Math.min(500, (parseInt($("count").value) || 0) + d));
+  $("count").value = v; countDirty = true;
+}
+
+window.addEventListener("pywebviewready", async () => {
+  api = window.pywebview.api;
+  await loadLang();
+  $("btnSettings").onclick = () => api.open_settings();
+  $("btnSetup").onclick = () => api.open_settings();
+  $("btnMin").onclick = () => api.minimize();
+  $("btnClose").onclick = () => api.hide();
+  $("btnCollect").onclick = async () => { await api.toggle_collect(); tick(); };
+  $("dec").onclick = () => step(-10);
+  $("inc").onclick = () => step(10);
+  $("count").oninput = () => countDirty = true;
+  $("btnInvite").onclick = async () => {
+    const running = $("btnInvite").classList.contains("btn-danger");
+    if (running) await api.stop_invites();
+    else { await api.start_invites(parseInt($("count").value) || 100); countDirty = false; }
+    tick();
+  };
+  tick();
+  setInterval(tick, 1000);
+});
+</script>
+</body>
+</html>
