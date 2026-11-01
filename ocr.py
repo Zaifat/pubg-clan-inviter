@@ -3,7 +3,7 @@ import asyncio
 import difflib
 from dataclasses import dataclass
 
-from PIL import ImageGrab
+from PIL import Image, ImageGrab
 
 from i18n import t
 from winrt.windows.globalization import Language
@@ -61,9 +61,10 @@ class Line(Word):
 
 
 class Ocr:
-    def __init__(self):
+    def __init__(self, prefer="ru"):
+        """prefer: OCR language to use when installed ("en" reads Latin nicknames without Cyrillic look-alikes)."""
         langs = [l.language_tag for l in OcrEngine.available_recognizer_languages]
-        tag = next((t for t in langs if t.lower().startswith("ru")), None)
+        tag = next((t for t in langs if t.lower().startswith(prefer)), None)
         self.engine = OcrEngine.try_create_from_language(Language(tag)) if tag else \
             OcrEngine.try_create_from_user_profile_languages()
         if self.engine is None:
@@ -71,9 +72,12 @@ class Ocr:
         self.language = tag or "user"
         self.loop = asyncio.new_event_loop()
 
-    def read(self, box):
-        """OCR a screen rectangle (left, top, right, bottom). Returns lines in screen coordinates."""
+    def read(self, box, scale=1):
+        """OCR a screen rectangle (left, top, right, bottom). Returns lines in screen coordinates.
+        scale > 1 enlarges the picture first, which helps with small text."""
         img = ImageGrab.grab(bbox=box, all_screens=True).convert("RGBA")
+        if scale != 1:
+            img = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
         writer = DataWriter()
         writer.write_bytes(img.tobytes("raw", "BGRA"))
         bmp = SoftwareBitmap.create_copy_from_buffer(writer.detach_buffer(), BitmapPixelFormat.BGRA8,
@@ -82,8 +86,9 @@ class Ocr:
         ox, oy = box[0], box[1]
         lines = []
         for ln in result.lines:
-            words = [Word(wd.text, ox + int(wd.bounding_rect.x), oy + int(wd.bounding_rect.y),
-                          int(wd.bounding_rect.width), int(wd.bounding_rect.height)) for wd in ln.words]
+            words = [Word(wd.text, ox + int(wd.bounding_rect.x / scale), oy + int(wd.bounding_rect.y / scale),
+                          int(wd.bounding_rect.width / scale), int(wd.bounding_rect.height / scale))
+                     for wd in ln.words]
             if not words:
                 continue
             x0, y0 = min(w.x for w in words), min(w.y for w in words)

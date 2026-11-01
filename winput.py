@@ -43,6 +43,7 @@ class INPUT(ctypes.Structure):
 INPUT_MOUSE, INPUT_KEYBOARD = 0, 1
 MOUSEEVENTF_MOVE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP = 0x0001, 0x0002, 0x0004
 MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP = 0x0008, 0x0010
+MOUSEEVENTF_WHEEL, WHEEL_DELTA = 0x0800, 120
 MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_ABSOLUTE = 0x4000, 0x8000
 KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, KEYEVENTF_SCANCODE = 0x1, 0x2, 0x4, 0x8
 SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN = 76, 77, 78, 79
@@ -102,6 +103,13 @@ def mouse_button(down, right=False):
     else:
         flag = MOUSEEVENTF_LEFTDOWN if down else MOUSEEVENTF_LEFTUP
     _send(_mouse(flag))
+
+
+def mouse_wheel(notches):
+    """Positive scrolls up, negative scrolls down."""
+    inp = INPUT(type=INPUT_MOUSE)
+    inp.u.mi = MOUSEINPUT(0, 0, ctypes.c_ulong(notches * WHEEL_DELTA).value, MOUSEEVENTF_WHEEL, 0, 0)
+    _send(inp)
 
 
 def _key_input(vk, up, scancode=True):

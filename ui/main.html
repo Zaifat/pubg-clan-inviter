@@ -58,6 +58,21 @@
     </div>
   </section>
 
+  <section class="card">
+    <div class="card-head">
+      <span class="eyebrow" data-i18n="kick_title"></span>
+      <span class="pill" id="kPill"></span>
+    </div>
+    <div class="row">
+      <button class="btn btn-ghost" id="btnMembers" data-i18n="members_btn" data-i18n-title="members_tt"></button>
+      <button class="btn btn-primary grow" id="btnKick">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>
+        <span></span>
+      </button>
+    </div>
+    <div class="sub wrap" id="kDetail"></div>
+  </section>
+
   <section class="log" id="log"></section>
   <div class="hint"><kbd id="stopKey">F12</kbd> <span data-i18n="hint_bottom"></span></div>
 </main>
@@ -98,6 +113,17 @@ function render(s) {
     $("bar").style.width = Math.min(100, inv.counts.ok / inv.target * 100) + "%";
   }
   $("iDetail").textContent = inv.detail || T("invite_hint");
+
+  const k = s.kick;
+  $("kPill").textContent = T(k.dry_run ? "kick_pill_dry" : "kick_pill_live");
+  $("kPill").className = "pill " + (k.running ? "run" : k.dry_run ? "" : "err");
+  const kb = $("btnKick");
+  kb.querySelector("span").textContent = T(k.running ? "halt" : "begin");
+  kb.querySelector("svg").style.display = k.running ? "none" : "";
+  kb.className = "btn grow " + (k.running ? "btn-danger" : "btn-primary");
+  kb.disabled = !k.running && (inv.running || !k.configured);
+  $("kDetail").textContent = k.detail || (k.counts && !k.dry_run
+    ? T("kick_counts", { ok: k.counts.ok, n: k.counts.candidates }) : T(k.configured ? "kick_hint" : "kick_need_criteria"));
   $("stopKey").textContent = s.stop_key;
   $("ver").textContent = "v" + s.version;
 
@@ -133,6 +159,12 @@ window.addEventListener("pywebviewready", async () => {
   $("btnMin").onclick = () => api.minimize();
   $("btnClose").onclick = () => api.hide();
   $("btnCollect").onclick = async () => { await api.toggle_collect(); tick(); };
+  $("btnKick").onclick = async () => {
+    if ($("btnKick").classList.contains("btn-danger")) await api.stop_kick();
+    else await api.start_kick();
+    tick();
+  };
+  $("btnMembers").onclick = () => api.open_members();
   $("dec").onclick = () => step(-10);
   $("inc").onclick = () => step(10);
   $("count").oninput = () => countDirty = true;

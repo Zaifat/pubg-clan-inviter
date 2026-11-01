@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Clan members</title>
+<link rel="stylesheet" href="style.css">
+<script src="i18n.js"></script>
+<style>
+  .toolbar { display: flex; gap: 10px; align-items: center; }
+  .toolbar .input { max-width: 240px; }
+  .toolbar .switch-row { padding: 0; gap: 8px; color: var(--muted); }
+  .toolbar .switch-row span { font-size: 12px; }
+  .summary { color: var(--muted); font-size: 12px; }
+  .table-wrap {
+    flex: 1; min-height: 0; overflow: auto; border-radius: var(--radius);
+    background: var(--surface); border: 1px solid var(--border);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  th {
+    position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--muted);
+    font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    text-align: right; padding: 9px 10px; cursor: pointer; white-space: nowrap;
+  }
+  th:hover { color: var(--text); }
+  th.sorted { color: var(--accent); }
+  th.sorted::after { content: " ↓"; }
+  th.sorted.asc::after { content: " ↑"; }
+  td { padding: 7px 10px; text-align: right; border-top: 1px solid var(--border); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  td.name { font-weight: 600; user-select: text; }
+  td.name small { display: block; font-weight: 400; color: var(--faint); font-size: 11px; }
+  td.muted { color: var(--faint); }
+  tr.gone td { opacity: .5; }
+  tbody tr:hover td { background: rgba(255, 255, 255, .025); }
+  .up { color: var(--ok); }
+  .down { color: var(--err); }
+  .delta { font-size: 11px; margin-left: 6px; }
+  .st { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 11px; background: var(--surface-2); color: var(--muted); }
+  .st.online { background: var(--ok-soft); color: var(--ok); }
+  .st.offline, .st.kicked { background: var(--err-soft); color: var(--err); }
+  .empty { padding: 40px 20px; text-align: center; color: var(--faint); white-space: normal; }
+</style>
+</head>
+<body>
+<header class="titlebar">
+  <div class="brand pywebview-drag-region"><span data-i18n="members_title" class="pywebview-drag-region"></span></div>
+  <button class="icon-btn" id="btnRefresh" data-i18n-title="m_refresh">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+  </button>
+  <button class="icon-btn close" id="btnClose" data-i18n-title="tt_close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 7l10 10M17 7L7 17"/></svg>
+  </button>
+</header>
+
+<main>
+  <div class="toolbar">
+    <input class="input" id="search" spellcheck="false" data-i18n-ph="m_search">
+    <label class="switch-row"><span class="switch"><input type="checkbox" id="showGone"><i></i></span><span data-i18n="m_show_gone"></span></label>
+  </div>
+  <div class="summary" id="summary"></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr id="head"></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+// everything is local: pywebview defines its own globals in the window
+(() => {
+  const $ = id => document.getElementById(id);
+  const COLS = [
+    ["name", "m_col_name"], ["xp", "m_col_xp"], ["xp_prev", "m_col_prev"], ["xp_avg", "m_col_avg"],
+    ["weeks", "m_col_weeks"], ["contribution", "m_col_contrib"], ["status", "m_col_status"],
+    ["first_seen", "m_col_since"], ["last_seen", "m_col_seen"],
+  ];
+  const STATUS_ORDER = { kicked: 0, left: 1, offline: 2, "": 3, online: 4 };
+  let data = { members: [], last_scan: 0, scans: 0 }, sortKey = "xp", asc = true;
+
+  const esc = s => String(s).replace(/[<&"]/g, c => ({ "<": "&lt;", "&": "&amp;", '"': "&quot;" })[c]);
+  const num = v => v == null ? "—" : Number(v).toLocaleString();
+  const date = ts => ts ? new Date(ts * 1000).toLocaleDateString(document.documentElement.lang, { day: "2-digit", month: "2-digit", year: "2-digit" }) : "—";
+
+  function sortValue(m, key) {
+    if (key === "name") return m.name.toLowerCase();
+    if (key === "status") return STATUS_ORDER[m.status] ?? 3;
+    return m[key] ?? -1;
+  }
+
+  function renderHead() {
+    $("head").innerHTML = COLS.map(([k, label]) =>
+      `<th data-k="${k}" class="${k === sortKey ? "sorted" + (asc ? " asc" : "") : ""}">${esc(T(label))}</th>`).join("");
+    $("head").querySelectorAll("th").forEach(th => th.onclick = () => {
+      const k = th.dataset.k;
+      asc = k === sortKey ? !asc : k === "name";
+      sortKey = k;
+      render();
+    });
+  }
+
+  function render() {
+    renderHead();
+    const q = $("search").value.trim().toLowerCase();
+    const showGone = $("showGone").checked;
+    const list = data.members
+      .filter(m => showGone || (m.status !== "kicked" && m.status !== "left"))
+      .filter(m => !q || m.name.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const x = sortValue(a, sortKey), y = sortValue(b, sortKey);
+        return (x < y ? -1 : x > y ? 1 : 0) * (asc ? 1 : -1);
+      });
+
+    const inClan = data.members.filter(m => m.status !== "kicked" && m.status !== "left").length;
+    $("summary").textContent = data.scans
+      ? T("m_summary", { n: inClan, when: new Date(data.last_scan * 1000).toLocaleString(document.documentElement.lang), scans: data.scans })
+      : "";
+    if (!data.scans) {
+      $("rows").innerHTML = `<tr><td colspan="${COLS.length}" class="empty">${esc(T("m_never"))}</td></tr>`;
+      return;
+    }
+
+    $("rows").innerHTML = list.map(m => {
+      const gone = m.status === "kicked" || m.status === "left";
+      const d = m.xp != null && m.xp_prev != null ? m.xp - m.xp_prev : null;
+      const delta = d ? `<span class="delta ${d > 0 ? "up" : "down"}">${d > 0 ? "+" : ""}${num(d)}</span>` : "";
+      const st = m.status ? `<span class="st ${m.status}" title="${esc(m.kick_reason)}">${esc(T("m_st_" + m.status))}</span>` : "";
+      const note = m.status === "kicked" ? `${date(m.kicked_at)} · ${m.kick_reason}` : m.invited_at ? T("m_invited") : "";
+      return `<tr class="${gone ? "gone" : ""}">
+        <td class="name">${esc(m.name)}${note ? `<small>${esc(note)}</small>` : ""}</td>
+        <td>${num(m.xp)}${delta}</td>
+        <td class="muted">${num(m.xp_prev)}</td>
+        <td>${num(m.xp_avg)}</td>
+        <td class="muted">${m.weeks || "—"}</td>
+        <td>${m.contribution == null ? "—" : m.contribution}</td>
+        <td>${st}</td>
+        <td class="muted">${m.first_seen ? date(m.first_seen) : esc(T("m_since_old"))}</td>
+        <td class="muted">${date(m.last_seen)}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function load() {
+    data = await window.pywebview.api.get_members();
+    render();
+  }
+
+  window.addEventListener("pywebviewready", async () => {
+    const api = window.pywebview.api;
+    await loadLang();
+    document.title = T("members_title");
+    $("btnClose").onclick = () => api.close_members();
+    $("btnRefresh").onclick = load;
+    $("search").oninput = render;
+    $("showGone").onchange = render;
+    await load();
+  });
+})();
+</script>
+</body>
+</html>

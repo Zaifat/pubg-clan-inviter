@@ -95,6 +95,22 @@ class PubgApi:
         return self.get(f"matches/{match_id}", tick, limited=False)
 
 
+_KEY_LOOKALIKES = str.maketrans("1l|0", "iiio", "_-. ")
+
+
+def member_key(name):
+    """Identity of a clan member read by OCR: I, l and 1 (and O and 0) are one letter and _ - are ignored (OCR
+    drops or swaps them), so "pxrl1l" / "pxrllI" and "Haidar0_1" / "Haidar01" are the same player."""
+    return name.lower().translate(_KEY_LOOKALIKES)
+
+
+CLAN_WEEK_START = 1704848400   # Wednesday 2024-01-10 05:00 MSK: the activity table is refreshed every Wednesday
+
+
+def clan_week(ts):
+    return int((ts - CLAN_WEEK_START) // (7 * DAY))
+
+
 def parse_time(s):
     return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp())
 
@@ -113,11 +129,39 @@ class Store:
             CREATE INDEX IF NOT EXISTS players_last_seen ON players(last_seen);
             CREATE TABLE IF NOT EXISTS matches(match_id TEXT PRIMARY KEY, created_at INTEGER, processed_at INTEGER);
             CREATE TABLE IF NOT EXISTS invited_names(name_lower TEXT PRIMARY KEY, invited_at INTEGER, result TEXT);
+            CREATE TABLE IF NOT EXISTS clan_members(
+                name_lower TEXT PRIMARY KEY, name TEXT NOT NULL, first_seen INTEGER, last_scan INTEGER,
+                weekly_xp INTEGER, kicked_at INTEGER, kick_reason TEXT);
+            CREATE TABLE IF NOT EXISTS member_scans(
+                scan_at INTEGER, name_lower TEXT, name TEXT, weekly_xp INTEGER, contribution REAL,
+                online INTEGER, long_offline INTEGER, PRIMARY KEY(scan_at, name_lower));
+            CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
         """)
+        if "status" not in [r[1] for r in self.db.execute("PRAGMA table_info(member_scans)")]:
+            self.db.execute("ALTER TABLE member_scans ADD COLUMN status TEXT")
+        self._migrate_member_keys()
         cols = [r[1] for r in self.db.execute("PRAGMA table_info(invited_names)")]
         if "result" not in cols:
             self.db.execute("ALTER TABLE invited_names ADD COLUMN result TEXT")
         self.db.commit()
+
+    def _migrate_member_keys(self):
+        """Older versions keyed clan members by the lowercase name; merge rows that are one player."""
+        rows = self.db.execute("SELECT name_lower, name, first_seen, last_scan, weekly_xp, kicked_at, kick_reason "
+                               "FROM clan_members").fetchall()
+        if all(r[0] == member_key(r[1]) for r in rows):
+            return
+        merged = {}
+        for r in sorted(rows, key=lambda r: r[3] or 0):   # the latest reading wins, the earliest first_seen stays
+            k = member_key(r[1])
+            first = min(merged[k][2], r[2] or 0) if k in merged else r[2]
+            merged[k] = (k, r[1], first, *r[3:])
+        self.db.execute("DELETE FROM clan_members")
+        self.db.executemany("INSERT INTO clan_members VALUES(?,?,?,?,?,?,?)", list(merged.values()))
+        scans = self.db.execute("SELECT * FROM member_scans").fetchall()
+        self.db.execute("DELETE FROM member_scans")
+        self.db.executemany("INSERT OR REPLACE INTO member_scans VALUES(?,?,?,?,?,?,?)",
+                            [(r[0], member_key(r[2]), *r[2:]) for r in scans])
 
     def _exec(self, sql, args=(), many=False):
         with self.lock:
@@ -189,6 +233,101 @@ class Store:
         self._exec("UPDATE players SET invited_at=? WHERE account_id=?", (now, account_id))
         self._exec("INSERT OR REPLACE INTO invited_names VALUES(?,?,?)", (name.lower(), now, result))
 
+    # ---------- clan members (auto-kick)
+    def scan_members(self, rows):
+        """rows: (name, weekly_xp) from the in-game activity table. Returns {member_key: first_seen}.
+
+        On the very first scan everyone counts as an old member, so the grace period only protects newcomers."""
+        now = int(time.time())
+        first_scan = self._query("SELECT COUNT(*) FROM clan_members")[0][0] == 0
+        self._exec("""
+            INSERT INTO clan_members(name_lower, name, first_seen, last_scan, weekly_xp) VALUES(?,?,?,?,?)
+            ON CONFLICT(name_lower) DO UPDATE SET name=excluded.name, last_scan=excluded.last_scan,
+                weekly_xp=excluded.weekly_xp, kicked_at=NULL, kick_reason=NULL
+        """, [(member_key(n), n, 0 if first_scan else now, now, xp) for n, xp in rows], many=True)
+        names = [member_key(n) for n, _ in rows]
+        if not names:
+            return {}
+        got = self._query(f"SELECT name_lower, first_seen FROM clan_members "
+                          f"WHERE name_lower IN ({','.join('?' * len(names))})", names)
+        return dict(got)
+
+    def current_members(self):
+        """Names from the last activity table reading, minus those kicked since."""
+        return [r[0] for r in self._query(
+            "SELECT name FROM clan_members WHERE kicked_at IS NULL "
+            "AND last_scan = (SELECT MAX(last_scan) FROM clan_members)")]
+
+    def record_scan(self, rows, now=None):
+        """rows: (name, weekly_xp, contribution, online, long_offline, status) of one activity table reading."""
+        now = int(now or time.time())
+        self._exec("INSERT OR REPLACE INTO member_scans(scan_at, name_lower, name, weekly_xp, contribution, online, "
+                   "long_offline, status) VALUES(?,?,?,?,?,?,?,?)",
+                   [(now, member_key(n), n, xp, c, int(on), int(off), st) for n, xp, c, on, off, st in rows],
+                   many=True)
+
+    def status_history(self, since=0):
+        """[(scan_at, member_key, status, online)] of every check since `since`, for learning status words."""
+        return self._query("SELECT scan_at, name_lower, status, online FROM member_scans "
+                           "WHERE scan_at >= ? AND status IS NOT NULL", (since,))
+
+    def get_meta(self, k, default=""):
+        rows = self._query("SELECT v FROM meta WHERE k=?", (k,))
+        return rows[0][0] if rows else default
+
+    def set_meta(self, k, v):
+        self._exec("INSERT OR REPLACE INTO meta VALUES(?,?)", (k, v))
+
+    def members_overview(self):
+        """Everyone ever seen in the clan with per-week XP history, for the members window."""
+        last_scan = self._query("SELECT MAX(scan_at) FROM member_scans")[0][0] or 0
+        scans = self._query("SELECT COUNT(DISTINCT scan_at) FROM member_scans")[0][0]
+        history = {}
+        for name_lower, scan_at, xp, contrib, online, off in self._query(
+                "SELECT name_lower, scan_at, weekly_xp, contribution, online, long_offline FROM member_scans "
+                "ORDER BY scan_at"):
+            h = history.setdefault(name_lower, {"weeks": {}, "last": None})
+            if xp is not None:
+                h["weeks"][clan_week(scan_at)] = xp   # the table holds last week's XP until Wednesday 05:00 MSK
+            h["last"] = (scan_at, xp, contrib, online, off)
+        members = []
+        for name_lower, name, first_seen, last_scan_m, kicked_at, reason in self._query(
+                "SELECT name_lower, name, first_seen, last_scan, kicked_at, kick_reason FROM clan_members"):
+            h = history.get(name_lower, {"weeks": {}, "last": None})
+            weeks = [h["weeks"][k] for k in sorted(h["weeks"])]
+            last = h["last"]
+            in_clan = bool(last and last[0] == last_scan) and not kicked_at
+            members.append({
+                "name": name,
+                "xp": weeks[-1] if weeks else None,
+                "xp_prev": weeks[-2] if len(weeks) > 1 else None,
+                "xp_avg": round(sum(weeks) / len(weeks)) if weeks else None,
+                "weeks": len(weeks),
+                "contribution": last[2] if last else None,
+                "status": ("kicked" if kicked_at else "left" if not in_clan else
+                           "online" if last[3] else "offline" if last[4] else ""),
+                "first_seen": first_seen or 0,
+                "last_seen": last[0] if last else last_scan_m,
+                "kicked_at": kicked_at,
+                "kick_reason": reason or "",
+                "invited_at": self.invited_at(name),
+            })
+        return {"members": members, "last_scan": last_scan, "scans": scans}
+
+    def invited_map(self):
+        """{member_key: invited_at} of the players the inviter really invited."""
+        return {member_key(n): ts for n, ts in self._query(
+            "SELECT name_lower, invited_at FROM invited_names WHERE result IS NULL OR result='ok'")}
+
+    def invited_at(self, name):
+        rows = self._query("SELECT invited_at FROM invited_names WHERE name_lower=? AND (result IS NULL OR result='ok')",
+                           (name.lower(),))
+        return rows[0][0] if rows else None
+
+    def mark_kicked(self, name, reason):
+        self._exec("UPDATE clan_members SET kicked_at=?, kick_reason=? WHERE name_lower=?",
+                   (int(time.time()), reason, member_key(name)))
+
     def stats(self, cutoff):
         q = lambda sql, *a: self._query(sql, a)[0][0]
         today = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
@@ -200,6 +339,7 @@ class Store:
             "invited_today": q("SELECT COUNT(*) FROM invited_names WHERE invited_at >= ? "
                                "AND (result IS NULL OR result='ok')", today),
             "matches": q("SELECT COUNT(*) FROM matches"),
+            "kicked_total": q("SELECT COUNT(*) FROM clan_members WHERE kicked_at IS NOT NULL"),
         }
 
 

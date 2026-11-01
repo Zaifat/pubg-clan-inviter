@@ -12,6 +12,7 @@ A Windows app that grows your PUBG: BATTLEGROUNDS clan on autopilot. Set your AP
 
 - **Nickname collection: Start / Stop.** The app watches the recent matches of players you choose (you, your friends) and takes every real player from them. Each one is checked right away through the official PUBG API, and only players **without a clan** are kept. Nicknames the API can no longer find are removed, and so are players who have not been seen in matches for N days (30 by default).
 - **Invites: Start.** The app launches PUBG, opens **Clan → Invites** by itself, invites the number of players you set (the most recently active first) and closes the game.
+- **Clan cleanup.** The app opens *Clan member activity*, reads the table and kicks members that match your criteria. Nicknames on the exclusion list are never kicked.
 
 The app finds the game's buttons and fields by their **icons on screen**, so it works with any resolution, monitor, window mode and **any game language**. Nothing to record or calibrate. It lives in the system tray.
 
@@ -35,6 +36,15 @@ While inviting, keep the game window in front: if it is not active, the app wait
 
 - Windows 10 or 11.
 - PUBG: BATTLEGROUNDS on Steam, any game language.
+
+## How clan cleanup works
+
+- Criteria (⚙ Settings → *Clan cleanup*): **weekly clan XP** below a number, **not logged in for N days** (from the online status column of the table; Russian game client only for now) and the **Offline** status (not logged in for long). Kick when any criterion matches, or only when all do.
+- The table is read by column positions, not headers, and the online status by its color, so XP, online and the kicks themselves work in any game language; the days not logged in and Offline are read in Russian only for now.
+- Roles are not read. Put your officers on the *Never kick* list (the game does not let anyone kick the leader anyway). Newcomers are left alone for N days (7 by default).
+- The **Members** button opens per-member statistics from every check: this and last week's XP, average, contribution, status, since when in the clan, who was kicked and why.
+- A member is kicked through their menu: the last item (*Kick*), a check that the confirmation names that player, then Space to accept. The app then checks that the nickname is gone from the list.
+- **Dry run** is on by default: the app only writes to the log whom it would kick. Turn it off once the list looks right.
 
 ## Interface language
 
