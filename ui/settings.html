@@ -63,6 +63,56 @@
   </section>
 
   <section class="card">
+    <span class="eyebrow" data-i18n="sec_kick"></span>
+    <div class="grid3">
+      <div class="field"><label><span class="lbl"><span data-i18n="kick_xp"></span>
+        <span class="tip tip-left" tabindex="0">?<span class="tip-body" data-i18n-html="help_kick_xp"></span></span></span></label>
+        <input class="input" id="kickXp" type="number" min="0"></div>
+      <div class="field"><label><span class="lbl"><span data-i18n="kick_days"></span>
+        <span class="tip tip-right" tabindex="0">?<span class="tip-body" data-i18n-html="help_kick_days"></span></span></span></label>
+        <input class="input" id="kickDays" type="number" min="0" max="365"></div>
+      <div class="field"><label><span class="lbl"><span data-i18n="kick_grace"></span>
+        <span class="tip tip-right" tabindex="0">?<span class="tip-body" data-i18n-html="help_kick_grace"></span></span></span></label>
+        <input class="input" id="kickGrace" type="number" min="0" max="90"></div>
+    </div>
+    <label class="switch-row"><span><span data-i18n="kick_offline"></span>
+      <span class="tip tip-left" tabindex="0">?<span class="tip-body" data-i18n-html="help_kick_offline"></span></span></span>
+      <span class="switch"><input type="checkbox" id="kickOffline"><i></i></span></label>
+    <div class="switch-row">
+      <span data-i18n="kick_mode"></span>
+      <select class="input select" id="kickMode">
+        <option value="any" data-i18n="kick_mode_any"></option>
+        <option value="all" data-i18n="kick_mode_all"></option>
+      </select>
+    </div>
+    <div class="switch-row">
+      <span data-i18n="kick_max"></span>
+      <input class="input" id="kickMax" type="number" min="1" max="100" style="width:80px">
+    </div>
+    <label class="switch-row"><span><span data-i18n="kick_dry"></span>
+      <span class="tip tip-left" tabindex="0">?<span class="tip-body" data-i18n-html="help_kick_dry"></span></span></span>
+      <span class="switch"><input type="checkbox" id="kickDry"><i></i></span></label>
+    <div class="field">
+      <label for="kickExcl"><span class="lbl"><span data-i18n="kick_excl"></span>
+        <span class="tip tip-left" tabindex="0">?<span class="tip-body" data-i18n-html="help_kick_excl"></span></span></span></label>
+      <textarea id="kickExcl" spellcheck="false" data-i18n-ph="sources_ph"></textarea>
+    </div>
+  </section>
+
+  <section class="card">
+    <span class="eyebrow" data-i18n="sec_learn"></span>
+    <label class="switch-row"><span><span data-i18n="learn_switch"></span>
+      <span class="tip tip-left" tabindex="0">?<span class="tip-body" data-i18n-html="help_learn"></span></span></span>
+      <span class="switch"><input type="checkbox" id="learn"><i></i></span></label>
+    <div class="help" data-i18n="learn_about"></div>
+    <div class="learned" id="learned"></div>
+    <div class="row">
+      <span class="help grow" id="learnChecks"></span>
+      <button class="btn btn-ghost small" id="btnLearnReset" data-i18n="learn_reset" data-i18n-title="learn_reset_tt"></button>
+    </div>
+  </section>
+
+  <section class="card">
     <span class="eyebrow" data-i18n="sec_general"></span>
     <div class="switch-row">
       <span data-i18n="language"></span>
@@ -105,6 +155,23 @@ window.addEventListener("pywebviewready", async () => {
   $("launch").checked = s.launch_game;
   $("close").checked = s.close_game_when_done;
   $("autostart").checked = s.autostart;
+  $("kickXp").value = s.kick_min_weekly_xp;
+  $("kickDays").value = s.kick_days_no_matches;
+  $("kickOffline").checked = s.kick_offline_status;
+  $("learn").checked = s.kick_learn_status;
+  const showLearned = l => {
+    const rows = [...l.units, ...l.phrases].map(x =>
+      `<div><code>${x.word.replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;")}</code> → ${x.unit}</div>`);
+    $("learned").innerHTML = rows.length ? rows.join("") : `<div class="help">${T("learn_none")}</div>`;
+    $("learnChecks").textContent = T("learn_checks", { n: l.checks });
+  };
+  showLearned(await api.get_status_learning());
+  $("btnLearnReset").onclick = async () => { if (confirm(T("learn_reset_confirm"))) showLearned(await api.reset_status_learning()); };
+  $("kickGrace").value = s.kick_grace_days;
+  $("kickMode").value = s.kick_mode;
+  $("kickMax").value = s.kick_max_per_run;
+  $("kickDry").checked = s.kick_dry_run;
+  $("kickExcl").value = s.kick_exclusions.join("\n");
   fillLanguages(lang.languages, s.language);
 
   $("eye").onclick = () => $("key").type = $("key").type === "password" ? "text" : "password";
@@ -123,6 +190,15 @@ window.addEventListener("pywebviewready", async () => {
       launch_game: $("launch").checked,
       close_game_when_done: $("close").checked,
       autostart: $("autostart").checked,
+      kick_min_weekly_xp: $("kickXp").value,
+      kick_days_no_matches: $("kickDays").value,
+      kick_offline_status: $("kickOffline").checked,
+      kick_learn_status: $("learn").checked,
+      kick_grace_days: $("kickGrace").value,
+      kick_mode: $("kickMode").value,
+      kick_max_per_run: $("kickMax").value,
+      kick_dry_run: $("kickDry").checked,
+      kick_exclusions: $("kickExcl").value.split(/\r?\n/),
     });
     if (r.ok) api.close_settings(); else $("err").textContent = r.error;
   };
