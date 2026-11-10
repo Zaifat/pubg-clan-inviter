@@ -157,7 +157,7 @@
   "k_skip_new": "Cleanup: newcomers, kept ({n}): {names}",
   "k_skip_no_xp": "Cleanup: XP not read ({n}): {names}",
   "kick_offline": "Kick players shown as Offline",
-  "help_kick_offline": "The game shows Offline instead of \"Last online … ago\" when a player has not logged in for a long time. It is a criterion of its own and also counts for \"No matches\". The status text is not read: Offline is recognized because it is about half as long as the others.",
+  "help_kick_offline": "The game shows Offline instead of \"Last online … ago\" when a player has not logged in for a long time. Such a player counts as not logged in for long: the days criterion is met. The status text is not read: Offline is recognized because it is about half as long as the others.",
   "k_offline": "Offline (not logged in for long)",
   "members_btn": "Members",
   "members_tt": "Clan member statistics from every check",

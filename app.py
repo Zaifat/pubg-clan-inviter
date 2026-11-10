@@ -21,7 +21,7 @@ from game import GameBot, Stopped
 from statuses import LONG_AGO
 from i18n import t
 
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.6.1"
 APP_TITLE = "PUBG Clan Inviter"
 APP_ID = "PUBG_Inviter"
 STEAM_URL = "steam://rungameid/578080"
@@ -293,17 +293,16 @@ class KickRun(GameRun):
                 hits.append(hit)
                 if hit:
                     reasons.append(t("k_xp", xp=m.weekly_xp, min=min_xp))
-            gone = m.name in long_offline
-            if max_days:
-                # days since last online, from the status column; "Не в сети" counts as long ago
-                hit = gone or (m.days is not None and m.days >= max_days)
-                if hit and not gone:
+            # inactivity is one criterion: not logged in for N days, or "Не в сети" (long ago). "Не в сети" is
+            # never a requirement of its own, otherwise "all criteria" would keep only Offline members
+            gone = m.name in long_offline and (by_status or max_days)
+            if max_days or by_status:
+                idle = bool(max_days) and m.days is not None and m.days >= max_days and not gone
+                hits.append(gone or idle)
+                if idle:
                     reasons.append(t("k_days", d=round(m.days)))
-                hits.append(hit)
-            if by_status:
-                hits.append(gone)
-            if gone and (by_status or max_days):
-                reasons.append(t("k_offline"))
+                if gone:
+                    reasons.append(t("k_offline"))
             if (all(hits) if need_all else any(hits)):
                 chosen.append((m, "; ".join(reasons)))
         for key, names in skipped.items():
